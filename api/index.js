@@ -8,7 +8,6 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// 从环境变量获取 Key (稍后在 Vercel 网页上设置)
 const API_KEY = process.env.GOOGLE_API_KEY;
 
 // 统一错误处理
@@ -20,17 +19,19 @@ const handleApiError = (error, res) => {
     });
 };
 
-// 路由: 根路径检查
 app.get('/api', (req, res) => {
     res.send('Gemini Vercel Proxy is Running! 🚀');
 });
 
-// 路由: 聊天
+// ------------------------------------------
+// 路由: 聊天 (使用 Gemini)
+// ------------------------------------------
 app.post('/api/chat', async (req, res) => {
     if (!API_KEY) return res.status(500).json({ error: "API Key 未配置" });
 
     const { prompt, history, imageBase64 } = req.body;
-    const modelName = 'gemini-1.5-pro'; // 推荐使用 1.5 pro
+    // 建议使用 flash 模型，速度快且免费额度高，容错率好
+    const modelName = 'gemini-1.5-flash'; 
 
     try {
         const contents = [];
@@ -45,6 +46,7 @@ app.post('/api/chat', async (req, res) => {
 
         const currentParts = [{ text: prompt || " " }];
         if (imageBase64) {
+            // 简单的 Base64 清洗
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
             currentParts.push({
                 inline_data: { mime_type: "image/jpeg", data: cleanBase64 }
@@ -54,7 +56,6 @@ app.post('/api/chat', async (req, res) => {
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`;
         
-        // Vercel 服务器在美国，不需要代理
         const response = await axios.post(url, {
             contents: contents,
             generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
@@ -68,36 +69,70 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
-// 路由: 绘图
+// ------------------------------------------
+// 路由: 绘图 (Google Imagen 3 -> 自动降级 -> 开源引擎)
+// ------------------------------------------
 app.post('/api/imagine', async (req, res) => {
-    if (!API_KEY) return res.status(500).json({ error: "API Key 未配置" });
+    const { prompt } = req.body;
+    if (!prompt) return res.status(400).json({ error: "缺少提示词" });
 
-    const { prompt, aspectRatio } = req.body;
-    const modelName = 'imagen-3.0-generate-001';
+    // 1. 优先尝试 Google Imagen 3
+    if (API_KEY) {
+        try {
+            console.log("尝试使用 Google Imagen 3...");
+            const modelName = 'imagen-3.0-generate-001';
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${API_KEY}`;
+            
+            const response = await axios.post(url, {
+                instances: [{ prompt: prompt }],
+                parameters: { sampleCount: 1, aspectRatio: "1:1" }
+            });
 
+            const predictions = response.data.predictions;
+            if (predictions && predictions.length > 0) {
+                return res.json({ 
+                    success: true, 
+                    image: `data:image/png;base64,${predictions[0].bytesBase64Encoded}`,
+                    source: 'google'
+                });
+            }
+        } catch (error) {
+            console.log("Google Imagen 权限不足或失败，正在切换至备用引擎...");
+            // 这里不 return，直接继续向下执行备用逻辑
+        }
+    }
+
+    // 2. 备用方案: 使用 Pollinations AI (免费、无需 Key、无限次)
     try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${API_KEY}`;
-        
-        const response = await axios.post(url, {
-            instances: [{ prompt: prompt }],
-            parameters: { sampleCount: 1, aspectRatio: aspectRatio || "1:1" }
+        console.log("正在使用备用引擎生成...");
+        // 构建请求 URL (自动翻译提示词以获得更好效果是最好的，但这里直接用)
+        // 为了稳定，我们添加一个随机种子
+        const seed = Math.floor(Math.random() * 10000);
+        const safePrompt = encodeURIComponent(prompt);
+        const fallbackUrl = `https://image.pollinations.ai/prompt/${safePrompt}?seed=${seed}&width=1024&height=1024&nologo=true`;
+
+        // 下载图片并转换为 Base64，以保持与前端接口一致
+        const imageResponse = await axios.get(fallbackUrl, {
+            responseType: 'arraybuffer',
+            timeout: 15000 // 15秒超时
         });
 
-        const predictions = response.data.predictions;
-        if (predictions && predictions.length > 0) {
-            res.json({ success: true, image: `data:image/png;base64,${predictions[0].bytesBase64Encoded}` });
-        } else {
-            throw new Error("生成失败，无数据返回");
-        }
+        const base64Image = Buffer.from(imageResponse.data, 'binary').toString('base64');
+        const mimeType = imageResponse.headers['content-type'] || 'image/jpeg';
 
-    } catch (error) {
-        // Imagen 可能需要白名单或特定权限，404 通常意味着账号无权限
-        if (error.response?.status === 404) {
-            return res.status(404).json({ success: false, error: "您的 API Key 可能暂无 Imagen 3 权限，或模型名称错误。" });
-        }
-        handleApiError(error, res);
+        return res.json({
+            success: true,
+            image: `data:${mimeType};base64,${base64Image}`,
+            source: 'backup-engine'
+        });
+
+    } catch (fallbackError) {
+        console.error("备用引擎也失败了:", fallbackError.message);
+        return res.status(500).json({ 
+            success: false, 
+            error: "所有绘图引擎均繁忙，请稍后再试。" 
+        });
     }
 });
 
-// 导出 app 供 Vercel 使用
 module.exports = app;
