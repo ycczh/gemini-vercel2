@@ -4,13 +4,11 @@ const axios = require('axios');
 
 const app = express();
 
-// 允许跨域
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 const API_KEY = process.env.GOOGLE_API_KEY;
 
-// 统一错误处理
 const handleApiError = (error, res) => {
     console.error("API Error:", error.response?.data || error.message);
     res.status(500).json({
@@ -23,14 +21,10 @@ app.get('/api', (req, res) => {
     res.send('Gemini Vercel Proxy is Running! 🚀');
 });
 
-// ------------------------------------------
-// 路由: 聊天 (使用 Gemini)
-// ------------------------------------------
+// Chat 路由保持不变
 app.post('/api/chat', async (req, res) => {
     if (!API_KEY) return res.status(500).json({ error: "API Key 未配置" });
-
     const { prompt, history, imageBase64 } = req.body;
-    // 建议使用 flash 模型，速度快且免费额度高，容错率好
     const modelName = 'gemini-1.5-flash'; 
 
     try {
@@ -43,95 +37,84 @@ app.post('/api/chat', async (req, res) => {
                 });
             });
         }
-
         const currentParts = [{ text: prompt || " " }];
         if (imageBase64) {
-            // 简单的 Base64 清洗
             const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
             currentParts.push({
                 inline_data: { mime_type: "image/jpeg", data: cleanBase64 }
             });
         }
         contents.push({ role: 'user', parts: currentParts });
-
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`;
-        
         const response = await axios.post(url, {
             contents: contents,
             generationConfig: { temperature: 0.7, maxOutputTokens: 2048 }
         });
-
         const aiText = response.data.candidates?.[0]?.content?.parts?.[0]?.text || "无回复";
         res.json({ success: true, text: aiText });
-
     } catch (error) {
         handleApiError(error, res);
     }
 });
 
-// ------------------------------------------
-// 路由: 绘图 (Google Imagen 3 -> 自动降级 -> 开源引擎)
-// ------------------------------------------
+// ------------------------------------------------------------------
+// 重点修复: 绘图路由 (极速版)
+// ------------------------------------------------------------------
 app.post('/api/imagine', async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: "缺少提示词" });
 
-    // 1. 优先尝试 Google Imagen 3
+    // 1. 优先尝试 Google Imagen 3 (如果你的 Key 有权限)
     if (API_KEY) {
         try {
-            console.log("尝试使用 Google Imagen 3...");
+            // 设置一个超短的超时，如果Google 3秒没反应或报错，立马切备用，防止卡死
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒限制
+
             const modelName = 'imagen-3.0-generate-001';
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${API_KEY}`;
             
             const response = await axios.post(url, {
                 instances: [{ prompt: prompt }],
                 parameters: { sampleCount: 1, aspectRatio: "1:1" }
+            }, {
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             const predictions = response.data.predictions;
             if (predictions && predictions.length > 0) {
                 return res.json({ 
                     success: true, 
+                    // Google 返回的是 Base64，可以直接用
                     image: `data:image/png;base64,${predictions[0].bytesBase64Encoded}`,
                     source: 'google'
                 });
             }
         } catch (error) {
-            console.log("Google Imagen 权限不足或失败，正在切换至备用引擎...");
-            // 这里不 return，直接继续向下执行备用逻辑
+            console.log("Google Imagen 失败或超时，切换至极速模式...");
+            // 忽略错误，直接向下执行备用逻辑
         }
     }
 
-    // 2. 备用方案: 使用 Pollinations AI (免费、无需 Key、无限次)
+    // 2. 极速备用方案: 直接返回 URL，不经过服务器下载
+    // 这样服务器响应时间 < 0.1秒，绝对不会超时
     try {
-        console.log("正在使用备用引擎生成...");
-        // 构建请求 URL (自动翻译提示词以获得更好效果是最好的，但这里直接用)
-        // 为了稳定，我们添加一个随机种子
-        const seed = Math.floor(Math.random() * 10000);
+        const seed = Math.floor(Math.random() * 100000);
+        // 对中文提示词进行简单的 URL 编码，最好是前端翻译成英文，但后端也做一层保护
         const safePrompt = encodeURIComponent(prompt);
-        const fallbackUrl = `https://image.pollinations.ai/prompt/${safePrompt}?seed=${seed}&width=1024&height=1024&nologo=true`;
-
-        // 下载图片并转换为 Base64，以保持与前端接口一致
-        const imageResponse = await axios.get(fallbackUrl, {
-            responseType: 'arraybuffer',
-            timeout: 15000 // 15秒超时
-        });
-
-        const base64Image = Buffer.from(imageResponse.data, 'binary').toString('base64');
-        const mimeType = imageResponse.headers['content-type'] || 'image/jpeg';
+        
+        // 使用 Pollinations.ai 的直连 URL
+        const imageUrl = `https://image.pollinations.ai/prompt/${safePrompt}?seed=${seed}&width=1024&height=1024&nologo=true&model=flux`;
 
         return res.json({
             success: true,
-            image: `data:${mimeType};base64,${base64Image}`,
-            source: 'backup-engine'
+            image: imageUrl, // 前端 `img src` 可以直接加载这个 URL
+            source: 'pollinations'
         });
 
     } catch (fallbackError) {
-        console.error("备用引擎也失败了:", fallbackError.message);
-        return res.status(500).json({ 
-            success: false, 
-            error: "所有绘图引擎均繁忙，请稍后再试。" 
-        });
+        return res.status(500).json({ success: false, error: "生成链接失败" });
     }
 });
 

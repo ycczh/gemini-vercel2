@@ -4,202 +4,101 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gemini Vercel Client</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Marked.js 用于 Markdown 渲染 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- FontAwesome 图标库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
+        /* 滚动条美化 */
         ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-track { background: #f8fafc; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        .typing-dot { animation: typing 1.4s infinite ease-in-out both; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Markdown 内容样式 */
+        .prose pre { background-color: #1e293b; color: #f8fafc; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-family: monospace; }
+        .prose code { color: #ea580c; background-color: #fff7ed; padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 0.875em; }
+        .prose pre code { color: inherit; background-color: transparent; padding: 0; }
+        .prose p { margin-bottom: 0.5rem; line-height: 1.6; }
+        .prose ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+        .prose ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 0.5rem; }
+        
+        /* 打字机加载动画 */
+        .typing-dot {
+            animation: typing 1.4s infinite ease-in-out both;
+        }
         .typing-dot:nth-child(1) { animation-delay: -0.32s; }
         .typing-dot:nth-child(2) { animation-delay: -0.16s; }
-        @keyframes typing { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 h-screen flex flex-col font-sans">
-    <header class="bg-white border-b border-slate-200 p-4 flex justify-between items-center shadow-sm z-10">
-        <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
-            Gemini <span class="text-xs text-slate-400 font-medium ml-1">Vercel Edition</span>
-        </h1>
+
+    <!-- 顶部导航栏 -->
+    <header class="bg-white border-b border-slate-200 p-4 flex justify-between items-center shadow-sm z-20">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white shadow-md">
+                <i class="fa-solid fa-sparkles"></i>
+            </div>
+            <h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">
+                Gemini <span class="text-xs text-slate-400 font-medium ml-1 uppercase tracking-wider">Vercel</span>
+            </h1>
+        </div>
+        
+        <!-- Tab 切换 -->
         <div class="flex bg-slate-100 p-1 rounded-lg">
-            <button onclick="switchTab('chat')" id="tab-chat" class="px-4 py-1 text-sm font-medium rounded-md shadow-sm bg-white text-slate-800">对话</button>
-            <button onclick="switchTab('imagine')" id="tab-imagine" class="px-4 py-1 text-sm font-medium rounded-md text-slate-500">绘图</button>
+            <button onclick="switchTab('chat')" id="tab-chat" class="px-4 py-1.5 text-sm font-medium rounded-md shadow-sm bg-white text-indigo-600 transition-all flex items-center gap-2">
+                <i class="fa-regular fa-comments"></i> 对话
+            </button>
+            <button onclick="switchTab('imagine')" id="tab-imagine" class="px-4 py-1.5 text-sm font-medium rounded-md text-slate-500 hover:text-slate-700 transition-all flex items-center gap-2">
+                <i class="fa-solid fa-palette"></i> 绘图
+            </button>
         </div>
     </header>
 
-    <main class="flex-1 overflow-hidden relative max-w-5xl mx-auto w-full">
-        <!-- Chat View -->
-        <div id="view-chat" class="h-full flex flex-col p-4 w-full">
-            <div id="chat-container" class="flex-1 overflow-y-auto space-y-6 pb-4 pr-2">
-                <div class="flex gap-4">
-                    <div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><i class="fa-solid fa-robot"></i></div>
-                    <div class="bg-white border border-slate-200 p-4 rounded-2xl rounded-tl-none shadow-sm"><p class="text-sm">已连接云端服务器。请提问！</p></div>
-                </div>
-            </div>
-            <div class="mt-4 bg-white border border-slate-200 rounded-xl p-3 shadow-lg relative">
-                <div id="image-preview-area" class="hidden mb-2 relative inline-block">
-                    <img id="preview-img" src="" class="h-20 w-auto rounded-lg border border-slate-300 object-cover">
-                    <button onclick="clearImage()" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"><i class="fa-solid fa-times"></i></button>
-                </div>
-                <div class="flex items-end gap-2">
-                    <button onclick="document.getElementById('file-upload').click()" class="p-2 text-slate-400 hover:text-blue-500"><i class="fa-regular fa-image text-xl"></i></button>
-                    <input type="file" id="file-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
-                    <textarea id="chat-input" rows="1" class="flex-1 bg-slate-50 border-0 focus:ring-0 resize-none py-2 px-2 text-slate-700 max-h-32" placeholder="输入消息..."></textarea>
-                    <button onclick="sendMessage()" id="send-btn" class="bg-blue-600 text-white p-2 rounded-lg w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-paper-plane"></i></button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Imagine View -->
-        <div id="view-imagine" class="hidden h-full flex flex-col items-center justify-center p-6 overflow-y-auto">
-            <div class="w-full max-w-2xl bg-white rounded-2xl shadow-xl border border-slate-100 p-8">
-                <h2 class="text-2xl font-bold mb-4">AI 绘图 (Vercel)</h2>
-                <textarea id="imagine-prompt" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 h-24 resize-none mb-4" placeholder="描述画面..."></textarea>
-                <button onclick="generateImage()" id="gen-btn" class="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold py-3 rounded-xl">生成图像</button>
-                
-                <div class="mt-6 bg-slate-50 p-4 min-h-[200px] flex items-center justify-center rounded-lg relative">
-                    <div id="imagine-loader" class="hidden absolute inset-0 bg-slate-50/80 flex items-center justify-center"><p class="text-purple-600 animate-pulse">正在生成...</p></div>
-                    <img id="result-image" src="" class="hidden max-w-full rounded shadow-lg">
-                    <p id="imagine-placeholder" class="text-slate-400 text-sm">结果将显示在这里</p>
-                </div>
-            </div>
-        </div>
-    </main>
-
-    <script>
-        // 使用相对路径，自动适配 Vercel
-        const API_BASE = '/api'; 
+    <!-- 主内容区 -->
+    <main class="flex-1 overflow-hidden relative max-w-5xl mx-auto w-full flex flex-col">
         
-        let chatHistory = [];
-        let currentImageBase64 = null;
-
-        function switchTab(tab) {
-            document.getElementById('view-chat').classList.add('hidden');
-            document.getElementById('view-imagine').classList.add('hidden');
-            document.getElementById(`view-${tab}`).classList.remove('hidden');
-        }
-
-        const chatInput = document.getElementById('chat-input');
-        chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
-
-        function handleImageUpload(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                currentImageBase64 = e.target.result;
-                document.getElementById('preview-img').src = currentImageBase64;
-                document.getElementById('image-preview-area').classList.remove('hidden');
-            };
-            reader.readAsDataURL(file);
-        }
-
-        function clearImage() {
-            currentImageBase64 = null;
-            document.getElementById('file-upload').value = '';
-            document.getElementById('image-preview-area').classList.add('hidden');
-        }
-
-        async function sendMessage() {
-            const text = chatInput.value.trim();
-            if (!text && !currentImageBase64) return;
-
-            appendMessage('user', text, currentImageBase64);
-            chatInput.value = '';
-            const imgToSend = currentImageBase64;
-            clearImage();
-            const loadingId = showLoading();
-
-            try {
-                const res = await fetch(`${API_BASE}/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: text, imageBase64: imgToSend, history: chatHistory })
-                });
-                const data = await res.json();
-                document.getElementById(loadingId).remove();
-
-                if (data.success) {
-                    appendMessage('ai', data.text);
-                    chatHistory.push({ role: 'user', text: text });
-                    chatHistory.push({ role: 'ai', text: data.text });
-                } else {
-                    appendMessage('error', data.error || '请求失败');
-                }
-            } catch (err) {
-                document.getElementById(loadingId).remove();
-                appendMessage('error', '网络错误');
-            }
-        }
-
-        async function generateImage() {
-            const prompt = document.getElementById('imagine-prompt').value.trim();
-            if (!prompt) return alert("请输入提示词");
-
-            const btn = document.getElementById('gen-btn');
-            const loader = document.getElementById('imagine-loader');
-            const resultImg = document.getElementById('result-image');
-            const placeholder = document.getElementById('imagine-placeholder');
-
-            btn.disabled = true;
-            loader.classList.remove('hidden');
-            resultImg.classList.add('hidden');
-
-            try {
-                const res = await fetch(`${API_BASE}/imagine`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: prompt })
-                });
-                const data = await res.json();
-
-                if (data.success) {
-                    resultImg.src = data.image;
-                    resultImg.classList.remove('hidden');
-                    placeholder.classList.add('hidden');
-                } else {
-                    alert('错误: ' + (data.error || '生成失败'));
-                }
-            } catch (err) {
-                alert('网络请求失败');
-            } finally {
-                loader.classList.add('hidden');
-                btn.disabled = false;
-            }
-        }
-
-        function appendMessage(role, text, img) {
-            const container = document.getElementById('chat-container');
-            const div = document.createElement('div');
-            let content = '';
-            if (img) content += `<img src="${img}" class="max-h-48 rounded-lg mb-2 block">`;
-            if (text) content += marked.parse(text);
+        <!-- View 1: 对话界面 -->
+        <div id="view-chat" class="h-full flex flex-col p-4 w-full">
             
-            if (role === 'user') {
-                div.className = "flex gap-4 flex-row-reverse";
-                div.innerHTML = `<div class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-white"><i class="fa-solid fa-user"></i></div><div class="bg-blue-50 p-4 rounded-2xl rounded-tr-none max-w-[85%]">${content}</div>`;
-            } else if (role === 'ai') {
-                div.className = "flex gap-4";
-                div.innerHTML = `<div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><i class="fa-solid fa-robot"></i></div><div class="bg-white border border-slate-200 p-4 rounded-2xl rounded-tl-none max-w-[85%] prose prose-sm">${content}</div>`;
-            } else {
-                div.innerHTML = `<div class="w-full text-center text-red-500 text-sm my-2">${text}</div>`;
-            }
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-        }
+            <!-- 聊天记录滚动区 -->
+            <div id="chat-container" class="flex-1 overflow-y-auto space-y-6 pb-4 pr-2 scroll-smooth">
+                <!-- 初始欢迎语 -->
+                <div class="flex gap-4">
+                    <div class="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0 text-indigo-600 border border-indigo-200">
+                        <i class="fa-solid fa-robot"></i>
+                    </div>
+                    <div class="bg-white border border-slate-200 p-4 rounded-2xl rounded-tl-none shadow-sm max-w-[85%]">
+                        <p class="text-sm text-slate-700">已连接云端服务。我可以帮您分析文档、识别图片或进行创意写作。</p>
+                    </div>
+                </div>
+            </div>
 
-        function showLoading() {
-            const container = document.getElementById('chat-container');
-            const id = 'l-' + Date.now();
-            const div = document.createElement('div');
-            div.id = id;
-            div.className = "flex gap-4";
-            div.innerHTML = `<div class="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><i class="fa-solid fa-robot"></i></div><div class="bg-white border border-slate-200 p-4 rounded-2xl rounded-tl-none"><div class="flex space-x-1 h-5 items-center"><div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div><div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div><div class="w-2 h-2 bg-slate-400 rounded-full typing-dot"></div></div></div>`;
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-            return id;
-        }
-    </script>
-</body>
-</html>
+            <!-- 底部输入框 -->
+            <div class="mt-4 bg-white border border-slate-200 rounded-xl p-3 shadow-lg relative z-30">
+                <!-- 图片预览区 -->
+                <div id="image-preview-area" class="hidden mb-2 relative inline-block group">
+                    <img id="preview-img" src="" class="h-20 w-auto rounded-lg border border-slate-300 shadow-sm object-cover">
+                    <div class="absolute inset-0 bg-black/20 rounded-lg hidden group-hover:flex items-center justify-center transition-all">
+                        <button onclick="clearImage()" class="bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600 shadow-sm">
+                            <i class="fa-solid fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-end gap-2">
+                    <!-- 上传按钮 -->
+                    <button onclick="document.getElementById('file-upload').click()" class="p-2.5 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg transition-all" title="上传图片">
+                        <i class="fa-regular fa-image text-xl"></i>
+                    </button>
+                    <input type="file" id="file-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+
+                    <!-- 文本输入 -->
+                    <textarea id="chat-input" rows="1" class="flex-1 bg-slate-50 border-0 focus:ring-2 focus:ring-indigo-100 rounded-lg resize-none py-2.5 px-3 text-
